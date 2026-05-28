@@ -1,7 +1,9 @@
 import { PrismaClient } from "@prisma/client"
 import { PrismaNeon } from "@prisma/adapter-neon"
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
+
+let prismaClient: PrismaClient | undefined = globalForPrisma.prisma
 
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL
@@ -15,6 +17,22 @@ function createPrismaClient() {
   })
 }
 
-export const db = globalForPrisma.prisma ?? createPrismaClient()
+function getPrismaClient() {
+  if (!prismaClient) {
+    prismaClient = createPrismaClient()
+    if (process.env.NODE_ENV !== "production") {
+      globalForPrisma.prisma = prismaClient
+    }
+  }
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db
+  return prismaClient
+}
+
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getPrismaClient()
+    const value = Reflect.get(client, prop)
+
+    return typeof value === "function" ? value.bind(client) : value
+  },
+}) as PrismaClient
